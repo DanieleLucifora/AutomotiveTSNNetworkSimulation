@@ -28,6 +28,16 @@ class EthernetApplication : public ApplicationBase, public TSNSocket::ICallback 
     virtual void generateFrames();
     virtual void transmitFrames();
 
+    virtual void finish() override;
+
+    simtime_t maxE2Edelay = 0;
+    simtime_t minE2Edelay = 10000;
+    float frameSent;
+    float frameReceived;
+    long totalBytesSent = 0;
+    long totalBytesReceived = 0;
+
+
     cPacketQueue queue;
     MacAddress localAddress;
     MacAddress remoteAddress;
