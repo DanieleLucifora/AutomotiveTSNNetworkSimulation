@@ -34,7 +34,7 @@ network TestNet extends WiredNetworkBase
             @display("p=247.126,446.68802");
         }
         CU: TsnDevice {
-            @display("p=359,176");
+            @display("p=495,200");
         }
         S2: TsnDevice {
             @display("p=410.49802,141.658");

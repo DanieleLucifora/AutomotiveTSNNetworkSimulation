@@ -20,8 +20,10 @@ void EthernetApplication::initialize(int stage) {
     if(stage == INITSTAGE_LOCAL) {
         socket.setCallback(this); //impostiamo come callback l'oggetto me stesso, perchè a me stesso gli ho fatto implementare l'interfaccia TSNSocket::ICallBack, interfaccia con 3 metodi
         socket.setOutputGate(gate("socketOut")); //come outputGate indichiamo qual è il gate che fa l'output, per inviare messaggi
+        EV << getFullPath() << " initialized at stage " << stage << endl;
 
     } else if (stage == INITSTAGE_NETWORK_INTERFACE_CONFIGURATION+1) { //prendiamo l'interface_configuration+1 perchè così attendiamo che tutte le interfacce di rete siano configurate
+        EV << getFullPath() << " configuring network interface at stage " << stage << endl;
         const char *localAddressString = par("localAddress");
         if (*localAddressString != '\0') {
             L3Address l3Address;
@@ -123,7 +125,7 @@ void EthernetApplication::generateFrames() {
 
 void EthernetApplication::socketDataArrived(TSNSocket *socket, Packet *pkt) {
     /* Messaggio dalla rete */
-    EV << "Arrivato pacchetto: " << pkt->getName() << endl;
+    EV << getFullPath() << " received packet: " << pkt->getName() << endl;
     auto pay = pkt->peekData<EthernetDataPayload>();
     int bs = pay->getBurst_size();
     int num = pay->getFrame_num();
@@ -133,11 +135,21 @@ void EthernetApplication::socketDataArrived(TSNSocket *socket, Packet *pkt) {
         e2ed = simTime()-pay->getGenTime();
         sig = registerSignal("BurstDelay");
         emit(sig, e2ed);
+        frameSent *= bs;
+        if (maxE2Edelay.dbl() == 0 || e2ed > maxE2Edelay)
+                    maxE2Edelay = e2ed;
+                if (minE2Edelay.dbl() == 0 || e2ed < minE2Edelay)
+                    minE2Edelay = e2ed;
     }
 
     e2ed = simTime()-pay->getGenTime();
     sig = registerSignal("FrameDelay");
     emit(sig, e2ed);
+
+    // Aggiungiamo la dimensione del pacchetto al totale dei byte ricevuti
+    totalBytesReceived += pkt->getByteLength();
+    EV << getFullPath() << " updated totalBytesReceived to " << totalBytesReceived << endl;
+
     delete pkt;
 }
 
@@ -146,6 +158,10 @@ void EthernetApplication::transmitFrames() {
     if(!queue.isEmpty()) {
         auto pkt = queue.pop();
         socket.send(check_and_cast<Packet *>(pkt));
+
+        // Aggiungiamo la dimensione del pacchetto al totale dei byte trasmessi
+        totalBytesSent += pkt->getByteLength();
+        EV << getFullPath() << " transmitted frame of size " << pkt->getByteLength() << endl;
 
         if(!queue.isEmpty()) {
             if(it == 0) {
@@ -163,6 +179,8 @@ void EthernetApplication::handleStartOperation(LifecycleOperation *operation) {
 
     socket.bind(par("name").stringValue());
 
+    EV << getFullPath() << " handleStartOperation called with start time " << stime << endl;
+
     if(stime >= 0) {
         cMessage *tim = new cMessage("StartTimer");
         scheduleAt(simTime()+stime, tim);
@@ -174,6 +192,42 @@ void EthernetApplication::handleStopOperation(LifecycleOperation *operation) {
 }
 
 void EthernetApplication::handleCrashOperation(LifecycleOperation *operation) {
+
+}
+
+void EthernetApplication::finish(){
+
+    simtime_t aJitter = fabs(maxE2Edelay - minE2Edelay);
+
+    EV << "Absolute Jitter:    " << aJitter << endl;
+
+    recordScalar("#aJitter", aJitter.dbl());
+    recordScalar("#maxE2Edelay", maxE2Edelay);
+    recordScalar("#minE2Edelay", minE2Edelay);
+
+    EV << "Frame Sent:   " << frameSent << endl;
+    EV << "Frame Received:   " << frameReceived << endl;
+    recordScalar("#frameReceived", frameReceived);
+
+    if(frameSent > 0){
+        float frameLost;
+        if(frameSent != frameReceived){
+            frameLost = frameSent - frameReceived;
+            recordScalar("#frameLost", frameLost);
+        }else frameLost = 0;
+
+        recordScalar("#frameSent", frameSent);
+
+        recordScalar("#frameLost", frameLost);
+        float frameLossRatio = frameLost / frameSent;
+        recordScalar("#frameLossRatio", frameLossRatio);
+    }
+
+    // Registra il totale dei byte trasmessi e ricevuti
+    EV << "Total Bytes Sent: " << totalBytesSent << endl;
+    EV << "Total Bytes Received: " << totalBytesReceived << endl;
+    recordScalar("#totalBytesSent", totalBytesSent);
+    recordScalar("#totalBytesReceived", totalBytesReceived);
 
 }
 
